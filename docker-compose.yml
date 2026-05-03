@@ -1,0 +1,205 @@
+# docker-compose.yml — CDC Inventory Sync System infrastructure stack
+#
+# Starts all stateful services required before any Go code is built:
+#   docker compose up -d
+#
+# To also start the Go microservices (requires built Dockerfiles):
+#   docker compose -f docker-compose.yml -f docker-compose.app.yml up -d
+#
+# Credentials are loaded from .env  (copy .env.example → .env)
+
+services:
+
+  # ── Zone 1: PostgreSQL Source (WAL / CDC origin) ───────────────────────────
+  postgres-source:
+    image: postgres:16
+    container_name: postgres-source
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_SOURCE_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SOURCE_PASSWORD:-postgres}
+      POSTGRES_DB:       source_db
+    # WAL logical replication required by pglogrepl
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-source-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_SOURCE_USER:-postgres} -d source_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - cdc-net
+
+  # ── Zone 3: PostgreSQL Target (serving_db, Grafana data source) ────────────
+  # Configured to listen on 5433 so the DSN is identical inside and outside
+  # the container network.
+  postgres-target:
+    image: postgres:16
+    container_name: postgres-target
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_TARGET_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_TARGET_PASSWORD:-postgres}
+      POSTGRES_DB:       serving_db
+    command:
+      - postgres
+      - -c
+      - port=5433
+    ports:
+      - "5433:5433"
+    volumes:
+      - postgres-target-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_TARGET_USER:-postgres} -d serving_db -p 5433"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - cdc-net
+
+  # ── Streaming: Redpanda (Kafka API + Schema Registry + Admin API) ──────────
+  # Internal ports used by Go services on cdc-net:
+  #   Kafka:           redpanda:9092
+  #   Schema Registry: redpanda:8084
+  #   Admin API:       redpanda:9644
+  # External ports for host-side tooling:
+  #   Kafka:           localhost:9093
+  #   Schema Registry: localhost:8085
+  #   Admin API:       localhost:9644
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.1.7
+    container_name: redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:9093
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:9093
+      - --schema-registry-addr=0.0.0.0:8084
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+      - --default-log-level=info
+    ports:
+      - "9092:9092"   # Kafka (internal + host access)
+      - "9093:9093"   # Kafka external listener
+      - "8084:8084"   # Schema Registry
+      - "9644:9644"   # Admin API
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9644/v1/status/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - cdc-net
+
+  # ── Zone 4: MinIO (object storage for Iceberg / Parquet) ──────────────────
+  minio:
+    image: minio/minio:RELEASE.2024-05-01T01-11-10Z
+    container_name: minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER:     ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3-compatible API
+      - "9001:9001"   # Web console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - cdc-net
+
+  # ── Metrics: Prometheus ────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9090/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - cdc-net
+
+  # ── Visualization: Grafana ─────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER:     ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED:  "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      postgres-target:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - cdc-net
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  cdc-net:
+    driver: bridge
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  postgres-source-data:
+  postgres-target-data:
+  redpanda-data:
+  minio-data:
+  grafana-data:
+  prometheus-data:

@@ -1,0 +1,21 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Go microservices — populated in Phase 3
+  - job_name: cdc-reader
+    static_configs:
+      - targets: ['cdc-reader:8081']
+
+  - job_name: inventory-sync
+    static_configs:
+      - targets: ['inventory-sync:8082']
+
+  - job_name: orchestrator
+    static_configs:
+      - targets: ['orchestrator:8083']

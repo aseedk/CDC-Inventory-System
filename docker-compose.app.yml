@@ -1,0 +1,119 @@
+# docker-compose.app.yml — CDC Inventory Sync System Go microservices
+#
+# Requires docker-compose.yml (infrastructure) to be running first.
+# Run together:
+#   docker compose -f docker-compose.yml -f docker-compose.app.yml up -d
+#
+# Or to build and restart only the app services:
+#   docker compose -f docker-compose.yml -f docker-compose.app.yml up -d --build
+
+services:
+
+  # ── CDC Reader: WAL → Redpanda ─────────────────────────────────────────────
+  cdc-reader:
+    build:
+      context: ./services/cdc-reader
+      dockerfile: Dockerfile
+    container_name: cdc-reader
+    restart: unless-stopped
+    environment:
+      POSTGRES_DSN:        postgres://${POSTGRES_SOURCE_USER:-postgres}:${POSTGRES_SOURCE_PASSWORD:-postgres}@postgres-source:5432/source_db
+      REPLICATION_SLOT:    cdc_slot
+      REDPANDA_BROKERS:    redpanda:9092
+      SCHEMA_REGISTRY_URL: http://redpanda:8084
+      INITIAL_SNAPSHOT:    ${INITIAL_SNAPSHOT:-false}
+      LOG_LEVEL:           ${LOG_LEVEL:-info}
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres-source:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - cdc-net
+
+  # ── Inventory Sync: Redpanda → PostgreSQL target + MinIO ──────────────────
+  inventory-sync:
+    build:
+      context: ./services/inventory-sync
+      dockerfile: Dockerfile
+    container_name: inventory-sync
+    restart: unless-stopped
+    environment:
+      REDPANDA_BROKERS:    redpanda:9092
+      SCHEMA_REGISTRY_URL: http://redpanda:8084
+      CONSUMER_GROUP:      inventory-sync-group
+      POSTGRES_TARGET_DSN: postgres://${POSTGRES_TARGET_USER:-postgres}:${POSTGRES_TARGET_PASSWORD:-postgres}@postgres-target:5433/serving_db
+      MINIO_ENDPOINT:      minio:9000
+      MINIO_ACCESS_KEY:    ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY:    ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET:        lakehouse
+      ICEBERG_NAMESPACE:   inventory
+      LOG_LEVEL:           ${LOG_LEVEL:-info}
+    ports:
+      - "8082:8082"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres-target:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8082/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - cdc-net
+
+  # ── Orchestrator: health monitor + DLQ alerting ───────────────────────────
+  # K8s pod-restart feature is inactive in compose (no cluster available).
+  # Health polling and DLQ alerting work normally against the other containers.
+  orchestrator:
+    build:
+      context: ./services/orchestrator
+      dockerfile: Dockerfile
+    container_name: orchestrator
+    restart: unless-stopped
+    environment:
+      CDC_READER_URL:       http://cdc-reader:8081
+      INVENTORY_SYNC_URL:   http://inventory-sync:8082
+      PROMETHEUS_URL:       http://prometheus:9090
+      REDPANDA_ADMIN_URL:   http://redpanda:9644
+      K8S_NAMESPACE:        ${K8S_NAMESPACE:-cdc-pipeline}
+      ALERT_WEBHOOK_URL:    ${ALERT_WEBHOOK_URL:-}
+      HEALTH_POLL_INTERVAL: ${HEALTH_POLL_INTERVAL:-10s}
+      LAG_POLL_INTERVAL:    ${LAG_POLL_INTERVAL:-30s}
+      DLQ_POLL_INTERVAL:    ${DLQ_POLL_INTERVAL:-60s}
+      LOG_LEVEL:            ${LOG_LEVEL:-info}
+    ports:
+      - "8083:8083"
+    depends_on:
+      cdc-reader:
+        condition: service_healthy
+      inventory-sync:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - cdc-net
+
+# ── Attach to the network defined in docker-compose.yml ──────────────────────
+networks:
+  cdc-net:
+    external: true
