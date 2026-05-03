@@ -1,0 +1,18 @@
+{{- if .Values.cdcReader.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: cdc-reader
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: cdc-reader
+    {{- include "cdc.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "cdc.selectorLabels" "cdc-reader" | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.cdcReader.port }}
+      targetPort: {{ .Values.cdcReader.port }}
+{{- end }}

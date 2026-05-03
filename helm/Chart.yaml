@@ -1,0 +1,16 @@
+apiVersion: v2
+name: cdc-pipeline
+description: CDC Inventory Sync System — real-time PostgreSQL WAL → Redpanda → serving DB + lakehouse
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - cdc
+  - kafka
+  - redpanda
+  - postgresql
+  - iceberg
+  - minio
+  - grafana
+maintainers:
+  - name: CDC Team

@@ -1,0 +1,55 @@
+{{- if .Values.cdcReader.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cdc-reader
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: cdc-reader
+    {{- include "cdc.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "cdc.selectorLabels" "cdc-reader" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cdc.selectorLabels" "cdc-reader" | nindent 8 }}
+    spec:
+      containers:
+        - name: cdc-reader
+          image: {{ .Values.cdcReader.image.repository }}:{{ .Values.cdcReader.image.tag }}
+          imagePullPolicy: {{ .Values.cdcReader.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.cdcReader.port }}
+          env:
+            - name: REPLICATION_SLOT
+              value: {{ .Values.cdcReader.replicationSlot | quote }}
+            - name: REDPANDA_BROKERS
+              value: "redpanda:{{ .Values.redpanda.ports.kafka }}"
+            - name: SCHEMA_REGISTRY_URL
+              value: "http://redpanda:{{ .Values.redpanda.ports.schemaRegistry }}"
+            - name: INITIAL_SNAPSHOT
+              value: {{ .Values.cdcReader.initialSnapshot | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.cdcReader.logLevel | quote }}
+          envFrom:
+            - secretRef:
+                name: cdc-reader-secret
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.cdcReader.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.cdcReader.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+{{- end }}

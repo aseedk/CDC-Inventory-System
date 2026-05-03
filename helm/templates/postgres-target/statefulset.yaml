@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-target
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: postgres-target
+    {{- include "cdc.labels" . | nindent 4 }}
+spec:
+  serviceName: postgres-target
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "cdc.selectorLabels" "postgres-target" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cdc.selectorLabels" "postgres-target" | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres-target
+          image: {{ .Values.postgresTarget.image.repository }}:{{ .Values.postgresTarget.image.tag }}
+          args:
+            - postgres
+            - -c
+            - port={{ .Values.postgresTarget.port }}
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.postgresTarget.port }}
+          envFrom:
+            - secretRef:
+                name: postgres-target-secret
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresTarget.credentials.user }}
+                - -d
+                - {{ .Values.postgresTarget.database }}
+                - -p
+                - {{ .Values.postgresTarget.port | quote }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresTarget.credentials.user }}
+                - -d
+                - {{ .Values.postgresTarget.database }}
+                - -p
+                - {{ .Values.postgresTarget.port | quote }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.postgresTarget.storage.storageClass }}
+        storageClassName: {{ .Values.postgresTarget.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresTarget.storage.size }}

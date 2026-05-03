@@ -1,0 +1,18 @@
+{{- if .Values.orchestrator.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: orchestrator
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: orchestrator
+    {{- include "cdc.labels" . | nindent 4 }}
+rules:
+  # Delete pods so Kubernetes restarts them via the Deployment controller.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list"]
+{{- end }}

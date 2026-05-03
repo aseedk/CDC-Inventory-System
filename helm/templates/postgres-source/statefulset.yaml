@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-source
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: postgres-source
+    {{- include "cdc.labels" . | nindent 4 }}
+spec:
+  serviceName: postgres-source
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "cdc.selectorLabels" "postgres-source" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cdc.selectorLabels" "postgres-source" | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres-source
+          image: {{ .Values.postgresSource.image.repository }}:{{ .Values.postgresSource.image.tag }}
+          args:
+            - postgres
+            - -c
+            - wal_level={{ .Values.postgresSource.wal.level }}
+            - -c
+            - max_replication_slots={{ .Values.postgresSource.wal.maxReplicationSlots }}
+            - -c
+            - max_wal_senders={{ .Values.postgresSource.wal.maxWalSenders }}
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.postgresSource.port }}
+          envFrom:
+            - secretRef:
+                name: postgres-source-secret
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresSource.credentials.user }}
+                - -d
+                - {{ .Values.postgresSource.database }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresSource.credentials.user }}
+                - -d
+                - {{ .Values.postgresSource.database }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.postgresSource.storage.storageClass }}
+        storageClassName: {{ .Values.postgresSource.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresSource.storage.size }}

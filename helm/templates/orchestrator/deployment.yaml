@@ -1,0 +1,64 @@
+{{- if .Values.orchestrator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: orchestrator
+    {{- include "cdc.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "cdc.selectorLabels" "orchestrator" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cdc.selectorLabels" "orchestrator" | nindent 8 }}
+    spec:
+      serviceAccountName: orchestrator
+      containers:
+        - name: orchestrator
+          image: {{ .Values.orchestrator.image.repository }}:{{ .Values.orchestrator.image.tag }}
+          imagePullPolicy: {{ .Values.orchestrator.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.orchestrator.port }}
+          env:
+            - name: CDC_READER_URL
+              value: "http://cdc-reader:{{ .Values.cdcReader.port }}"
+            - name: INVENTORY_SYNC_URL
+              value: "http://inventory-sync:{{ .Values.inventorySync.port }}"
+            - name: PROMETHEUS_URL
+              value: "http://prometheus:{{ .Values.prometheus.port }}"
+            - name: REDPANDA_ADMIN_URL
+              value: "http://redpanda:{{ .Values.redpanda.ports.admin }}"
+            - name: K8S_NAMESPACE
+              value: {{ .Values.orchestrator.k8sNamespace | quote }}
+            - name: HEALTH_POLL_INTERVAL
+              value: {{ .Values.orchestrator.healthPollInterval | quote }}
+            - name: LAG_POLL_INTERVAL
+              value: {{ .Values.orchestrator.lagPollInterval | quote }}
+            - name: DLQ_POLL_INTERVAL
+              value: {{ .Values.orchestrator.dlqPollInterval | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.orchestrator.logLevel | quote }}
+          envFrom:
+            - secretRef:
+                name: orchestrator-secret
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.orchestrator.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.orchestrator.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+{{- end }}

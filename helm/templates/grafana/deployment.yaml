@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: grafana
+    {{- include "cdc.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "cdc.selectorLabels" "grafana" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cdc.selectorLabels" "grafana" | nindent 8 }}
+    spec:
+      containers:
+        - name: grafana
+          image: {{ .Values.grafana.image.repository }}:{{ .Values.grafana.image.tag }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.grafana.port }}
+          envFrom:
+            - secretRef:
+                name: grafana-secret
+          env:
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: {{ .Values.grafana.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: {{ .Values.grafana.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: grafana-data
+        - name: datasources
+          configMap:
+            name: grafana-datasources

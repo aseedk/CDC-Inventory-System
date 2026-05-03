@@ -1,0 +1,62 @@
+# values-cloud.yaml — cloud deployment overrides.
+# Apply on top of values.yaml:
+#   helm upgrade --install cdc-pipeline helm/ \
+#     --values helm/values.yaml \
+#     --values helm/values-cloud.yaml \
+#     --namespace cdc-pipeline
+
+# In cloud, NodePort services become LoadBalancer; remove kind-specific nodePorts.
+prometheus:
+  service:
+    type: LoadBalancer
+    nodePort: null
+
+grafana:
+  service:
+    type: LoadBalancer
+    nodePort: null
+
+minio:
+  service:
+    type: LoadBalancer
+    apiNodePort: null
+    consoleNodePort: null
+
+redpanda:
+  service:
+    type: LoadBalancer
+    kafkaNodePort: null
+    schemaRegistryNodePort: null
+    adminNodePort: null
+
+postgresSource:
+  service:
+    type: ClusterIP
+    nodePort: null
+
+postgresTarget:
+  service:
+    type: ClusterIP
+    nodePort: null
+
+# Go microservices are enabled in cloud.
+cdcReader:
+  enabled: true
+  image:
+    repository: <REGISTRY>/cdc-reader   # replace with your registry
+    tag: latest
+    pullPolicy: Always
+
+inventorySync:
+  enabled: true
+  image:
+    repository: <REGISTRY>/inventory-sync
+    tag: latest
+    pullPolicy: Always
+
+orchestrator:
+  enabled: true
+  image:
+    repository: <REGISTRY>/orchestrator
+    tag: latest
+    pullPolicy: Always

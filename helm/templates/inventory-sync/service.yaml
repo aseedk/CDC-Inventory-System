@@ -1,0 +1,18 @@
+{{- if .Values.inventorySync.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-sync
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: inventory-sync
+    {{- include "cdc.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "cdc.selectorLabels" "inventory-sync" | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.inventorySync.port }}
+      targetPort: {{ .Values.inventorySync.port }}
+{{- end }}

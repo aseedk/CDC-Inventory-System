@@ -94,7 +94,7 @@ services:
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:9093
       - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:9093
       - --schema-registry-addr=0.0.0.0:8084
-      - --rpc-addr=redpanda:33145
+      - --rpc-addr=0.0.0.0:33145
       - --advertise-rpc-addr=redpanda:33145
       - --default-log-level=info
     ports:

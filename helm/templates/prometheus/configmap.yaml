@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: prometheus
+    {{- include "cdc.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval:     15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ['localhost:{{ .Values.prometheus.port }}']
+
+      {{- if .Values.cdcReader.enabled }}
+      - job_name: cdc-reader
+        static_configs:
+          - targets: ['cdc-reader:{{ .Values.cdcReader.port }}']
+      {{- end }}
+
+      {{- if .Values.inventorySync.enabled }}
+      - job_name: inventory-sync
+        static_configs:
+          - targets: ['inventory-sync:{{ .Values.inventorySync.port }}']
+      {{- end }}
+
+      {{- if .Values.orchestrator.enabled }}
+      - job_name: orchestrator
+        static_configs:
+          - targets: ['orchestrator:{{ .Values.orchestrator.port }}']
+      {{- end }}

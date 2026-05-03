@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-source
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: postgres-source
+    {{- include "cdc.labels" . | nindent 4 }}
+spec:
+  type: {{ include "cdc.serviceType" .Values.postgresSource.service.nodePort }}
+  selector:
+    {{- include "cdc.selectorLabels" "postgres-source" | nindent 4 }}
+  ports:
+    - name: postgres
+      port: {{ .Values.postgresSource.port }}
+      targetPort: {{ .Values.postgresSource.port }}
+      {{- if .Values.postgresSource.service.nodePort }}
+      nodePort: {{ .Values.postgresSource.service.nodePort }}
+      {{- end }}

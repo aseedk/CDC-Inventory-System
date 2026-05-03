@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: minio
+    {{- include "cdc.labels" . | nindent 4 }}
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "cdc.selectorLabels" "minio" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cdc.selectorLabels" "minio" | nindent 8 }}
+    spec:
+      containers:
+        - name: minio
+          image: {{ .Values.minio.image.repository }}:{{ .Values.minio.image.tag }}
+          args:
+            - server
+            - /data
+            - --console-address
+            - :{{ .Values.minio.ports.console }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.minio.ports.api }}
+            - name: console
+              containerPort: {{ .Values.minio.ports.console }}
+          envFrom:
+            - secretRef:
+                name: minio-secret
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: {{ .Values.minio.ports.api }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: {{ .Values.minio.ports.api }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.minio.storage.storageClass }}
+        storageClassName: {{ .Values.minio.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.minio.storage.size }}

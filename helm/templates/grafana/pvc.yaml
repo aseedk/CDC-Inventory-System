@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: grafana
+    {{- include "cdc.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.grafana.storage.storageClass }}
+  storageClassName: {{ .Values.grafana.storage.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.grafana.storage.size }}

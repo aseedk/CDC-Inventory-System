@@ -1,0 +1,147 @@
+# values.yaml — default values for local kind deployment.
+# Override with values-cloud.yaml for cloud deployment.
+
+global:
+  namespace: cdc-pipeline
+
+# ── Zone 1: PostgreSQL Source ─────────────────────────────────────────────────
+postgresSource:
+  image:
+    repository: postgres
+    tag: "16"
+  port: 5432
+  database: source_db
+  credentials:
+    user: postgres
+    password: postgres
+  storage:
+    size: 5Gi
+    storageClass: ""        # "" = cluster default (kind: standard / local-path)
+  wal:
+    level: logical
+    maxReplicationSlots: 10
+    maxWalSenders: 10
+  service:
+    nodePort: 30432         # host access via kind port mapping → localhost:5434
+
+# ── Zone 3: PostgreSQL Target ─────────────────────────────────────────────────
+postgresTarget:
+  image:
+    repository: postgres
+    tag: "16"
+  port: 5433                # postgres listens on 5433 via -c port=5433
+  database: serving_db
+  credentials:
+    user: postgres
+    password: postgres
+  storage:
+    size: 5Gi
+    storageClass: ""
+  service:
+    nodePort: 30433         # host access via kind port mapping → localhost:5433
+
+# ── Streaming: Redpanda ───────────────────────────────────────────────────────
+redpanda:
+  image:
+    repository: docker.redpanda.com/redpandadata/redpanda
+    tag: v24.1.7
+  ports:
+    kafka: 9092
+    schemaRegistry: 8084
+    admin: 9644
+    rpc: 33145
+  resources:
+    smp: 1
+    memory: 1G
+  storage:
+    size: 5Gi
+    storageClass: ""
+  service:
+    kafkaNodePort: 30092
+    schemaRegistryNodePort: 30084
+    adminNodePort: 30644
+
+# ── Zone 4: MinIO ─────────────────────────────────────────────────────────────
+minio:
+  image:
+    repository: minio/minio
+    tag: RELEASE.2024-05-01T01-11-10Z
+  ports:
+    api: 9000
+    console: 9001
+  credentials:
+    accessKey: minioadmin
+    secretKey: minioadmin
+  bucket: lakehouse
+  storage:
+    size: 10Gi
+    storageClass: ""
+  service:
+    apiNodePort: 30900
+    consoleNodePort: 30901
+
+# ── Metrics: Prometheus ───────────────────────────────────────────────────────
+prometheus:
+  image:
+    repository: prom/prometheus
+    tag: v2.52.0
+  port: 9090
+  storage:
+    size: 5Gi
+    storageClass: ""
+  service:
+    nodePort: 30090
+
+# ── Visualization: Grafana ────────────────────────────────────────────────────
+grafana:
+  image:
+    repository: grafana/grafana
+    tag: "11.0.0"
+  port: 3000
+  credentials:
+    adminUser: admin
+    adminPassword: admin
+  storage:
+    size: 1Gi
+    storageClass: ""
+  service:
+    nodePort: 30300
+
+# ── App: CDC Reader ───────────────────────────────────────────────────────────
+cdcReader:
+  enabled: false
+  image:
+    repository: cdc-reader
+    tag: latest
+    pullPolicy: Never       # locally built image loaded into kind
+  port: 8081
+  replicationSlot: cdc_slot
+  initialSnapshot: "false"
+  logLevel: info
+
+# ── App: Inventory Sync ───────────────────────────────────────────────────────
+inventorySync:
+  enabled: false
+  image:
+    repository: inventory-sync
+    tag: latest
+    pullPolicy: Never
+  port: 8082
+  consumerGroup: inventory-sync-group
+  icebergNamespace: inventory
+  logLevel: info
+
+# ── App: Orchestrator ─────────────────────────────────────────────────────────
+orchestrator:
+  enabled: false
+  image:
+    repository: orchestrator
+    tag: latest
+    pullPolicy: Never
+  port: 8083
+  k8sNamespace: cdc-pipeline
+  alertWebhookUrl: ""
+  healthPollInterval: 10s
+  lagPollInterval: 30s
+  dlqPollInterval: 60s
+  logLevel: info

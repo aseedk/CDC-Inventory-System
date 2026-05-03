@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: redpanda
+    {{- include "cdc.labels" . | nindent 4 }}
+spec:
+  type: NodePort
+  selector:
+    {{- include "cdc.selectorLabels" "redpanda" | nindent 4 }}
+  ports:
+    - name: kafka
+      port: {{ .Values.redpanda.ports.kafka }}
+      targetPort: {{ .Values.redpanda.ports.kafka }}
+      nodePort: {{ .Values.redpanda.service.kafkaNodePort }}
+    - name: schema-registry
+      port: {{ .Values.redpanda.ports.schemaRegistry }}
+      targetPort: {{ .Values.redpanda.ports.schemaRegistry }}
+      nodePort: {{ .Values.redpanda.service.schemaRegistryNodePort }}
+    - name: admin
+      port: {{ .Values.redpanda.ports.admin }}
+      targetPort: {{ .Values.redpanda.ports.admin }}
+      nodePort: {{ .Values.redpanda.service.adminNodePort }}
+    - name: rpc
+      port: {{ .Values.redpanda.ports.rpc }}
+      targetPort: {{ .Values.redpanda.ports.rpc }}
